@@ -133,6 +133,42 @@ with st.sidebar:
     if st.button("Refresh now"):
         st.rerun()
 
+    with st.expander("Connection test"):
+        st.caption(
+            "Checks your API key against the last few days, one day at a "
+            "time, and shows exactly what the data provider said."
+        )
+        if st.button("Run connection test"):
+            st.session_state["run_conn_test"] = True
+
+if st.session_state.pop("run_conn_test", False):
+    st.subheader("Connection test")
+    test_key = str(get_secret("polygon_api_key", "") or "")
+    test_base = market_data.resolve_base_url(bool(get_secret("use_massive_host", False)))
+    st.write(f"**Key in secrets:** {market_data.mask_key(test_key)}")
+    st.write(f"**Endpoint:** {test_base}")
+    if not test_key:
+        st.error("No polygon_api_key found in Streamlit secrets.")
+    else:
+        with st.spinner("Testing..."):
+            rows = market_data.connection_test(
+                ticker or "AAPL", test_key, datetime.now(cfg.ET).date(),
+                base_url=test_base,
+            )
+        st.dataframe(
+            pd.DataFrame(rows)[["date", "result"]],
+            hide_index=True, width="stretch",
+        )
+        if any(row["ok"] for row in rows):
+            st.success(
+                "Your key works. Any day marked 'not covered by your plan' "
+                "is normal on a free plan - the app will use the most recent "
+                "day that does work."
+            )
+        else:
+            st.error("No day returned data. See the messages above.")
+    st.divider()
+
 if not ticker:
     st.warning("Enter a ticker in the sidebar to begin.")
     st.stop()
@@ -171,6 +207,7 @@ else:
             )
     except market_data.MarketDataError as exc:
         load_error = str(exc)
+        st.session_state["last_error_kind"] = type(exc).__name__
 
 if load_error:
     st.title(cfg.APP_NAME)
